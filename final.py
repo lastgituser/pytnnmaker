@@ -7,26 +7,44 @@ import torch.utils.data as tdata
 from torchvision import datasets, models, transforms
 from PIL import Image
 import copy
+from bs4 import BeautifulSoup
+from icrawler import Parser
 from icrawler.builtin import GoogleImageCrawler, BingImageCrawler
 import PIL
 import os
 import time
+import re
 
-n_epochs = 2
+n_epochs = 1
 
 start_phase = 0
 
 categories = {
     'img': [
-        'trash',
-        'compost',
-        'recyclable',
+        'apple fruit',
+        'pear fruit',
+        'banana fruit',
     ]
 }
 
 logfilename = 'logfile.csv'
 
 save_file = 'model_state_dict.pkl'
+
+class GoogleParser(Parser):
+
+    def parse(self, response):
+        soup = BeautifulSoup(
+            response.content.decode('utf-8', 'ignore'), 'lxml')
+        image_divs = soup.find_all(name='script')
+        for div in image_divs:
+            txt = str(div)
+            if 'AF_initDataCallback' not in txt:
+                continue
+            if 'ds:0' in txt or 'ds:1' not in txt:
+                continue
+            uris = re.findall(r'http.*?\.(?:jpg|png|bmp)', txt)
+            return [{'file_url': uri} for uri in uris]
 
 def dct(categorieslist):
     logfile = open(logfilename, 'a+')
@@ -56,12 +74,13 @@ def dct(categorieslist):
                     os.mkdir(othernewfolder)
                 if not os.path.exists(newfolder):
                     os.mkdir(newfolder)
-                crawler = GoogleImageCrawler(storage={'root_dir': newfolder},
+                crawler = GoogleImageCrawler(parser_cls=GoogleParser,
+			storage={'root_dir': newfolder},
                         downloader_threads=4, feeder_threads=1, 
                         parser_threads=1)
                 filters = dict(
                     size='medium',
-                    date=((2018 - j // 12 // 28, 12 - ((j // 28) % 12), 
+                    date=((2019 - j // 12 // 28, 12 - ((j // 28) % 12), 
                             28 - (j % 28)), 
                             (2018 - j // 12 // 28, 12 - ((j // 28) % 12), 
                             28 - (j % 28))), 
@@ -146,11 +165,10 @@ def dct(categorieslist):
                 catdir = os.path.join(kfolder, cat)
                 othercatdir = os.path.join(otherfolder, cat)
                 for imgfile in os.listdir(catdir):
-                    os.rename(os.path.join(catdir, imgfile),
-                            os.path.join(othercatdir, str(j) + '_' + imgfile))
+                    os.remove(os.path.join(catdir, imgfile))
             j += 1
 
-root = categories.items()[0][0]
+root = list(categories.items())[0][0]
 
 preprocess = transforms.Compose([
     transforms.Resize((256, 256), Image.ANTIALIAS),
